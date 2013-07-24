@@ -1389,7 +1389,10 @@ snmpv3_engineID_probe(struct session_list *slp,
         }
     }
 
-    /* see if there was any hooks to call after the engineID probing */
+    /*
+     * see if there is a hook to call now that we're done probing for an
+     * engineID
+     */
     if (sptr && sptr->post_probe_engineid) {
         status = (*sptr->post_probe_engineid)(slp, in_session);
         if (status != SNMPERR_SUCCESS)
@@ -1545,12 +1548,12 @@ _sess_open(netsnmp_session * in_session)
         if (in_session->flags & SNMP_FLAGS_STREAM_SOCKET) {
             transport =
                 netsnmp_tdomain_transport_full("snmp", in_session->peername,
-                                               in_session->local_port, "tcp",
+                                               in_session->local_port, "tcp,tcp6",
                                                NULL);
         } else {
             transport =
                 netsnmp_tdomain_transport_full("snmp", in_session->peername,
-                                               in_session->local_port, "udp",
+                                               in_session->local_port, "udp,udp6",
                                                NULL);
         }
 
@@ -3064,7 +3067,7 @@ snmp_build(u_char ** pkt, size_t * pkt_len, size_t * offset,
     rc = _snmp_build(pkt, pkt_len, offset, pss, pdu);
     if (rc) {
         if (!pss->s_snmp_errno) {
-            snmp_log(LOG_ERR, "snmp_build: unknown failure");
+            snmp_log(LOG_ERR, "snmp_build: unknown failure\n");
             pss->s_snmp_errno = SNMPERR_BAD_ASN1_BUILD;
         }
         SET_SNMP_ERROR(pss->s_snmp_errno);
@@ -4525,9 +4528,11 @@ snmp_pdu_parse(netsnmp_pdu *pdu, u_char * data, size_t * length)
         case ASN_INTEGER:
             vp->val.integer = (long *) vp->buf;
             vp->val_len = sizeof(long);
-            asn_parse_int(var_val, &len, &vp->type,
+            data = asn_parse_int(var_val, &len, &vp->type,
                           (long *) vp->val.integer,
                           sizeof(*vp->val.integer));
+            if (!data)
+                return -1;
             break;
         case ASN_COUNTER:
         case ASN_GAUGE:
@@ -4535,9 +4540,11 @@ snmp_pdu_parse(netsnmp_pdu *pdu, u_char * data, size_t * length)
         case ASN_UINTEGER:
             vp->val.integer = (long *) vp->buf;
             vp->val_len = sizeof(u_long);
-            asn_parse_unsigned_int(var_val, &len, &vp->type,
+            data = asn_parse_unsigned_int(var_val, &len, &vp->type,
                                    (u_long *) vp->val.integer,
                                    vp->val_len);
+            if (!data)
+                return -1;
             break;
 #ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
         case ASN_OPAQUE_COUNTER64:
@@ -4546,34 +4553,45 @@ snmp_pdu_parse(netsnmp_pdu *pdu, u_char * data, size_t * length)
         case ASN_COUNTER64:
             vp->val.counter64 = (struct counter64 *) vp->buf;
             vp->val_len = sizeof(struct counter64);
-            asn_parse_unsigned_int64(var_val, &len, &vp->type,
+            data = asn_parse_unsigned_int64(var_val, &len, &vp->type,
                                      (struct counter64 *) vp->val.
                                      counter64, vp->val_len);
+            if (!data)
+                return -1;
             break;
 #ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
         case ASN_OPAQUE_FLOAT:
             vp->val.floatVal = (float *) vp->buf;
             vp->val_len = sizeof(float);
-            asn_parse_float(var_val, &len, &vp->type,
+            data = asn_parse_float(var_val, &len, &vp->type,
                             vp->val.floatVal, vp->val_len);
+            if (!data)
+                return -1;
             break;
         case ASN_OPAQUE_DOUBLE:
             vp->val.doubleVal = (double *) vp->buf;
             vp->val_len = sizeof(double);
-            asn_parse_double(var_val, &len, &vp->type,
+            data = asn_parse_double(var_val, &len, &vp->type,
                              vp->val.doubleVal, vp->val_len);
+            if (!data)
+                return -1;
             break;
         case ASN_OPAQUE_I64:
             vp->val.counter64 = (struct counter64 *) vp->buf;
             vp->val_len = sizeof(struct counter64);
-            asn_parse_signed_int64(var_val, &len, &vp->type,
+            data = asn_parse_signed_int64(var_val, &len, &vp->type,
                                    (struct counter64 *) vp->val.counter64,
                                    sizeof(*vp->val.counter64));
 
+            if (!data)
+                return -1;
             break;
 #endif                          /* NETSNMP_WITH_OPAQUE_SPECIAL_TYPES */
-        case ASN_OCTET_STR:
         case ASN_IPADDRESS:
+            if (vp->val_len != 4)
+                return -1;
+            /* fallthrough */
+        case ASN_OCTET_STR:
         case ASN_OPAQUE:
         case ASN_NSAP:
             if (vp->val_len < sizeof(vp->buf)) {
@@ -4584,12 +4602,16 @@ snmp_pdu_parse(netsnmp_pdu *pdu, u_char * data, size_t * length)
             if (vp->val.string == NULL) {
                 return -1;
             }
-            asn_parse_string(var_val, &len, &vp->type, vp->val.string,
+            data = asn_parse_string(var_val, &len, &vp->type, vp->val.string,
                              &vp->val_len);
+            if (!data)
+                return -1;
             break;
         case ASN_OBJECT_ID:
             vp->val_len = MAX_OID_LEN;
-            asn_parse_objid(var_val, &len, &vp->type, objid, &vp->val_len);
+            data = asn_parse_objid(var_val, &len, &vp->type, objid, &vp->val_len);
+            if (!data)
+                return -1;
             vp->val_len *= sizeof(oid);
             vp->val.objid = (oid *) malloc(vp->val_len);
             if (vp->val.objid == NULL) {
@@ -4607,8 +4629,10 @@ snmp_pdu_parse(netsnmp_pdu *pdu, u_char * data, size_t * length)
             if (vp->val.bitstring == NULL) {
                 return -1;
             }
-            asn_parse_bitstring(var_val, &len, &vp->type,
+            data = asn_parse_bitstring(var_val, &len, &vp->type,
                                 vp->val.bitstring, &vp->val_len);
+            if (!data)
+                return -1;
             break;
         default:
             snmp_log(LOG_ERR, "bad type returned (%x)\n", vp->type);
@@ -5350,19 +5374,14 @@ _sess_process_packet(void *sessp, netsnmp_session * sp,
 	/*
 	 * Successful, so delete request.  
 	 */
-	if (isp->requests == rp) {
-	  isp->requests = rp->next_request;
-	  if (isp->requestsEnd == rp) {
-	    isp->requestsEnd = NULL;
-	  }
-	} else {
+	if (orp)
 	  orp->next_request = rp->next_request;
-	  if (isp->requestsEnd == rp) {
-	    isp->requestsEnd = orp;
-	  }
-	}
+        else
+	  isp->requests = rp->next_request;
+        if (isp->requestsEnd == rp)
+	  isp->requestsEnd = orp;
 	snmp_free_pdu(rp->pdu);
-	free((char *) rp);
+	free(rp);
 	/*
 	 * There shouldn't be any more requests with the same reqid.  
 	 */
@@ -6266,18 +6285,13 @@ snmp_sess_timeout(void *sessp)
                     callback(NETSNMP_CALLBACK_OP_TIMED_OUT, sp,
                              rp->pdu->reqid, rp->pdu, magic);
                 }
-                if (isp->requests == rp) {
-                    isp->requests = rp->next_request;
-                    if (isp->requestsEnd == rp) {
-                        isp->requestsEnd = NULL;
-                    }
-                } else {
+                if (orp)
                     orp->next_request = rp->next_request;
-                    if (isp->requestsEnd == rp) {
-                        isp->requestsEnd = orp;
-                    }
-                }
-                snmp_free_pdu(rp->pdu); /* FIX  rp is already free'd! */
+                else
+                    isp->requests = rp->next_request;
+                if (isp->requestsEnd == rp)
+                    isp->requestsEnd = orp;
+                snmp_free_pdu(rp->pdu);
                 freeme = rp;
                 continue;       /* don't update orp below */
             } else {

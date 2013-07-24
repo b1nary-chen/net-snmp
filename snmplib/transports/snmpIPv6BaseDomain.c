@@ -212,7 +212,7 @@ netsnmp_sockaddr_in6_2(struct sockaddr_in6 *addr,
                         DEBUGMSGTL(("netsnmp_sockaddr_in6",
                                     "IPv6 address with port suffix :%d\n",
                                     portno));
-                        if (portno > 0 && portno < 0xffff) {
+                        if (portno > 0 && portno <= 0xffff) {
                             addr->sin6_port = htons((u_short)portno);
                         } else {
                             DEBUGMSGTL(("netsnmp_sockaddr_in6", "invalid port number: %d", portno));
@@ -265,7 +265,7 @@ netsnmp_sockaddr_in6_2(struct sockaddr_in6 *addr,
                 DEBUGMSGTL(("netsnmp_sockaddr_in6",
                             "IPv6 address with port suffix :%d\n",
                             atoi(cp + 1)));
-                if (portno > 0 && portno < 0xffff) {
+                if (portno > 0 && portno <= 0xffff) {
                     addr->sin6_port = htons((u_short)portno);
                 } else {
                     DEBUGMSGTL(("netsnmp_sockaddr_in6", "invalid port number: %d", portno));
@@ -304,7 +304,7 @@ netsnmp_sockaddr_in6_2(struct sockaddr_in6 *addr,
                 DEBUGMSGTL(("netsnmp_sockaddr_in6",
                             "hostname(?) with port suffix :%d\n",
                             portno));
-                if (portno > 0 && portno < 0xffff) {
+                if (portno > 0 && portno <= 0xffff) {
                     addr->sin6_port = htons((u_short)portno);
                 } else {
                     DEBUGMSGTL(("netsnmp_sockaddr_in6", "invalid port number: %d", portno));
@@ -342,13 +342,6 @@ netsnmp_sockaddr_in6_2(struct sockaddr_in6 *addr,
             err = netsnmp_getaddrinfo(peername, NULL, &hint, &addrs);
         }
         if (err != 0) {
-#if HAVE_GAI_STRERROR
-            snmp_log(LOG_ERR, "getaddrinfo(\"%s\", NULL, ...): %s\n", peername,
-                     gai_strerror(err));
-#else
-            snmp_log(LOG_ERR, "getaddrinfo(\"%s\", NULL, ...): (error %d)\n",
-                     peername, err);
-#endif
             free(peername);
             return 0;
         }

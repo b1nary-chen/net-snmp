@@ -232,12 +232,12 @@ ConnectingEntry(UNUSED tState self)
     if(!(t = netsnmp_transport_open_client(
              "agentx", netsnmp_ds_get_string(
                  NETSNMP_DS_APPLICATION_ID, NETSNMP_DS_AGENT_X_SOCKET)))) {
-        snmp_perror("Failed to connect to AgentX server");
+        snmp_log(LOG_ERR, "Failed to connect to AgentX server\n");
         change_state(&Exit);
     } else if(!(sess = snmp_sess_add_ex(
                     &init, t, NULL, agentx_parse, NULL, NULL,
                     agentx_realloc_build, agentx_check_packet, NULL))) {
-        snmp_perror("Failed to create session");
+      snmp_log(LOG_ERR, "Failed to create session\n");
         change_state(&Exit);
     } else {
         sessp = sess;
@@ -294,7 +294,7 @@ OpeningRes(UNUSED tState self, netsnmp_pdu *act)
         session = act->sessid;
         change_state(&Notifying);
     } else {
-        snmp_perror("Failed to open session");
+        snmp_log(LOG_ERR, "Failed to open session");
         change_state(&Exit);
     }
 }
@@ -329,7 +329,7 @@ NotifyingRes(UNUSED tState self, netsnmp_pdu *act)
     if(act->errstat == AGENTX_ERR_NOERROR)
         result = 0;
     else
-        snmp_perror("Failed to send notification");
+        snmp_log(LOG_ERR, "Failed to send notification");
     /** \todo: Retry handling --- ClosingReconnect??? */
     change_state(&Closing);
 }
@@ -439,6 +439,11 @@ main(int argc, char *argv[])
         prognam = argv[0];
 
     putenv(strdup("POSIXLY_CORRECT=1"));
+
+    netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID,
+			   NETSNMP_DS_LIB_DISABLE_PERSISTENT_LOAD, 1);
+    netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID,
+			   NETSNMP_DS_LIB_DISABLE_PERSISTENT_SAVE, 1);
 
     while ((arg = getopt(argc, argv, ":Vhm:M:D:dP:L:U:c:x:")) != -1) {
         switch (arg) {

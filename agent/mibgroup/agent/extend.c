@@ -51,6 +51,9 @@ unsigned int             num_compatability_entries = 0;
 unsigned int             max_compatability_entries = 50;
 netsnmp_old_extend *compatability_entries;
 
+char           *cmdlinebuf;
+size_t          cmdlinesize;
+
 WriteMethod fixExec2Error;
 FindVarMethod var_extensible_old;
 oid  old_extensible_variables_oid[] = { NETSNMP_UCDAVIS_MIB, NETSNMP_SHELLMIBNUM, 1 };
@@ -1459,6 +1462,32 @@ handle_nsExtendOutput2Table(netsnmp_mib_handler          *handler,
          *
          *************************/
 
+char * _get_cmdline(netsnmp_extend *extend)
+{
+    size_t          size;
+    char           *newbuf;
+    const char     *args = extend->args;
+
+    if (args == NULL)
+        /* Use empty string for processes without arguments. */
+        args = "";
+
+    size = strlen(extend->command) + strlen(args) + 2;
+    if (size > cmdlinesize) {
+        newbuf = realloc(cmdlinebuf, size);
+        if (!newbuf) {
+            free(cmdlinebuf);
+            cmdlinebuf = NULL;
+            cmdlinesize = 0;
+            return NULL;
+        }
+        cmdlinebuf = newbuf;
+        cmdlinesize = size;
+    }
+    sprintf(cmdlinebuf, "%s %s", extend->command, args);
+    return cmdlinebuf;
+}
+
 u_char *
 var_extensible_old(struct variable * vp,
                      oid * name,
@@ -1469,6 +1498,7 @@ var_extensible_old(struct variable * vp,
     netsnmp_old_extend *exten = NULL;
     static long     long_ret;
     unsigned int idx;
+    char         *cmdline;
 
     if (header_simple_table
         (vp, name, length, exact, var_len, write_method, num_compatability_entries))
@@ -1487,8 +1517,10 @@ var_extensible_old(struct variable * vp,
             *var_len = strlen(exten->exec_entry->token);
             return ((u_char *) (exten->exec_entry->token));
         case SHELLCOMMAND:
-            *var_len = strlen(exten->exec_entry->command);
-            return ((u_char *) (exten->exec_entry->command));
+            cmdline = _get_cmdline(exten->exec_entry);
+            if (cmdline)
+                *var_len = strlen(cmdline);
+            return ((u_char *) cmdline);
         case ERRORFLAG:        /* return code from the process */
             netsnmp_cache_check_and_reload( exten->exec_entry->cache );
             long_ret = exten->exec_entry->result;
@@ -1511,8 +1543,10 @@ var_extensible_old(struct variable * vp,
 
         case ERRORFIXCMD:
             if (exten->efix_entry) {
-                *var_len = strlen(exten->efix_entry->command);
-                return ((u_char *) exten->efix_entry->command);
+                cmdline = _get_cmdline(exten->efix_entry);
+		if (cmdline)
+                    *var_len = strlen(cmdline);
+                return ((u_char *) cmdline);
             } else {
                 *var_len = 0;
                 return ((u_char *) &long_return);  /* Just needs to be non-null! */
